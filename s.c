@@ -74,6 +74,22 @@ void limpiacadenas(char archivo[20],char **sp){
     memset(archivo,0,20);
 }
 
+void ejecutarComando(char archivo[20], char **sp, int entrada, int salida) {
+    // Redirección de entrada/salida
+    if (entrada != STDIN_FILENO) {
+        dup2(entrada, STDIN_FILENO);
+        close(entrada);
+    }
+    if (salida != STDOUT_FILENO) {
+        dup2(salida, STDOUT_FILENO);
+        close(salida);
+    }
+
+    execvp(archivo, sp);
+    perror("Error al ejecutar el comando");
+    exit(EXIT_FAILURE);
+}
+
 int main(){
     // gcc -Wall -std=c11 shell.c -o shell
 	char comand[250];
@@ -86,13 +102,39 @@ int main(){
 		fgets(comand,250,stdin);
         fflush(stdin);
         sp = separaCadenas(archivo,comand);		
-		int pid=fork();
-		if(pid==0){
-			execvp(archivo,sp);	
-			exit(1);
-		}else{
-			wait(NULL);
-			//exit(1);
-		}	
-	}
+		int numComandos = 1;
+        for (int i = 0; i < strlen(comand); i++) {
+            if (comand[i] == '|') {
+                numComandos++;
+            }
+        }
+
+        int pipes[numComandos - 1][2];
+        int entrada = STDIN_FILENO;
+
+        for (int i = 0; i < numComandos; i++) {
+            pipe(pipes[i]);
+            int salida = (i == numComandos - 1) ? STDOUT_FILENO : pipes[i][1];
+
+            int pid = fork();
+            if (pid == 0) {
+                ejecutarComando(archivo, sp, entrada, salida);
+            } else {
+                wait(NULL);
+                if (entrada != STDIN_FILENO) {
+                    close(entrada);
+                }
+                if (salida != STDOUT_FILENO) {
+                    close(salida);
+                }
+                entrada = pipes[i][0];
+            }
+        }
+
+        // Cerrar los descriptores de archivo de las tuberías en el proceso padre
+        for (int i = 0; i < numComandos - 1; i++) {
+            close(pipes[i][0]);
+            close(pipes[i][1]);
+        }
+    }
 }
